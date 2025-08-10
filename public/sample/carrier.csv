@@ -1,0 +1,3 @@
+tracking_number,carrier,service,ship_date,est_delivery_date,status,last_update,origin_city,origin_state,dest_city,dest_state
+1Z9999999999999999,UPS,Ground,2024-07-01,2024-07-05,In Transit,2024-07-02 08:00,San Jose,CA,Austin,TX
+

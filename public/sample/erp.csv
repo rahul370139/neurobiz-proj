@@ -1,0 +1,3 @@
+po_number,po_date,customer_code,customer_name,ship_to_code,ship_to_name,ship_to_city,ship_to_state,sku,qty_ordered,unit_price,promise_date,status
+PO-1001,2024-07-01,C001,Acme Retail,ST01,Main DC,Dallas,TX,SKU-123,100,12.50,2024-07-07,Open
+
