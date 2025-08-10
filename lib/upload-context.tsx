@@ -1,7 +1,6 @@
 "use client"
 import React, { createContext, useContext, useState } from 'react'
-
-export type UploadResponse = { message: string; files_processed: string[]; next_step: string; success?: boolean }
+import { UploadResponse } from './api'
 
 type UploadContextValue = {
   edi850: File | null

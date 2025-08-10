@@ -6,6 +6,7 @@ export interface UploadResponse {
   files_processed: string[]
   next_step: string
   success?: boolean
+  analysis?: AnalysisResult
 }
 
 export interface AnalysisResult {
@@ -14,15 +15,34 @@ export interface AnalysisResult {
   processing_steps: number
   artifacts_generated: boolean
   com_json: any
-  rca_json: any
-  spans: any[]
+  rca_json: {
+    order_id: string
+    hypothesis: string
+    supporting_refs: string[]
+    confidence: number
+    impact: string
+    why: string
+    drafts?: any
+  }
+  spans: {
+    span_id: string
+    parent_id: string | null
+    tool: string
+    start_ts: number
+    end_ts: number
+    args_digest?: string
+    result_digest?: string
+    attributes?: Record<string, any>
+  }[]
   storage_results: {
     success: boolean
     artifacts_stored: number
     spans_stored: number
     incident_created: boolean
     order_id: string
+    error?: string | null
   }
+  success?: boolean
 }
 
 export interface FileInfo {

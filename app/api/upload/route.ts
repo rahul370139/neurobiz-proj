@@ -15,8 +15,17 @@ export async function POST(req: Request) {
       data = { message: 'Upstream returned non-JSON' }
     }
 
+    // Log the complete upload response
+    console.log('Upload API Response:', {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      data: data
+    })
+
     return NextResponse.json({ ...data, success: res.ok }, { status: res.status })
   } catch (err: any) {
+    console.log('Upload API Error:', err)
     return NextResponse.json(
       { message: 'Proxy error', files_processed: [], next_step: '', success: false, error: String(err?.message || err) },
       { status: 500 }

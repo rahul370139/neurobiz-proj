@@ -3,7 +3,8 @@ import React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Stepper as StepperComp } from '@/components/stepper'
-import { useUploadContext, UploadResponse } from '@/lib/upload-context'
+import { useUploadContext } from '@/lib/upload-context'
+import { UploadResponse } from '@/lib/api'
 
 export default function ConfigurationPage() {
   const { edi850, edi856, carrierCsv, erpCsv, etaThresholdHours, setEtaThresholdHours } = useUploadContext()
@@ -89,10 +90,24 @@ function SubmitButton() {
       if (!uploadRes.ok) throw new Error('Upload failed')
       const uploadData = await uploadRes.json()
       
+      // Log the upload response details
+      console.log('File Upload Response:', {
+        status: uploadRes.status,
+        statusText: uploadRes.statusText,
+        data: uploadData
+      })
+      
       // Step 2: Run analysis
       const analysisRes = await fetch('/api/analyze', { method: 'POST' })
       if (!analysisRes.ok) throw new Error('Analysis failed')
       const analysisData = await analysisRes.json()
+      
+      // Log the analysis response details
+      console.log('Analysis Response:', {
+        status: analysisRes.status,
+        statusText: analysisRes.statusText,
+        data: analysisData
+      })
       
       // Combine results
       const response: UploadResponse = { 
