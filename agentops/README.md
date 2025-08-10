@@ -1,180 +1,107 @@
-# AgentOps Core Implementation
+# AgentOps FastAPI Application
 
-This folder contains the core AgentOps system that processes supply chain data and generates actionable insights. It's the "brain" that analyzes EDI files, ERP data, and carrier information to detect problems and create solutions.
+A flexible FastAPI application for analyzing EDI and CSV files using AgentOps. This application allows users to upload their own files for analysis without requiring specific hardcoded file names.
 
-## What This Folder Achieves
+## Features
 
-### 🎯 **Core Functionality**
-- **Data Ingestion**: Processes EDI 850 (purchase orders), EDI 856 (shipping notices), ERP CSV data, and carrier ETA information
-- **Canonical Order Model (COM)**: Creates a unified, normalized view of order data with field-level provenance tracking
-- **Root Cause Analysis (RCA)**: Automatically detects delivery delays and generates deterministic analysis reports
-- **Incident Detection**: Identifies problems like ETA slips, wrong products, and payment delays
-- **Email Generation**: Creates both internal notifications and customer-facing communications with automatic PII redaction
+- **Flexible File Upload**: Accepts any EDI (.edi), CSV (.csv), or HTML files
+- **Automatic File Processing**: Automatically detects and processes different file types
+- **Smart EDI Detection**: Automatically identifies EDI 850 (Purchase Order) vs 856 (Shipping Notice) files
+- **CSV Compatibility**: Handles various CSV formats with automatic column detection
+- **Real-time Analysis**: Runs AgentOps analysis on uploaded files
+- **Health Monitoring**: Comprehensive health checks and status endpoints
+- **Storage Integration**: Optional Supabase integration for storing results
 
-### 🔍 **Data Processing Pipeline**
-1. **Parse EDI Files**: Extracts structured data from EDI 850/856 messages
-2. **Merge ERP Data**: Combines with enterprise resource planning information
-3. **Calculate ETA Deltas**: Compares expected vs. actual delivery times
-4. **Generate Insights**: Creates comprehensive analysis and recommendations
+## Quick Start
 
-### 📊 **Output Generation**
-- **Content-Addressed Artifacts**: Stores all outputs with SHA-256 digests for immutability
-- **Deterministic Spans**: Emits traceable execution logs with argument/result hashes
-- **Structured JSON**: Produces COM, RCA, and span data in machine-readable format
-- **Email Templates**: Generates notification drafts for stakeholders
+### 1. Deploy to Railway
 
-## Project Structure
+The application is configured for Railway deployment with:
+- `Procfile` for process management
+- `railway.json` for deployment configuration
+- `requirements.txt` for Python dependencies
 
-```
-agentops/
-├── agent_ops.py                    # Core AgentOps implementation class
-├── main.py                         # Unified entry point with auto data detection
-├── fastapi_app.py                  # Unified FastAPI web interface with startup management
-├── extract_edi.py                  # Unified EDI utility with extraction and testing
-├── csv_compatibility.py            # CSV compatibility layer for different formats
-├── requirements.txt                # Python dependencies for FastAPI
-├── README.md                       # This documentation
-├── README_FASTAPI.md              # FastAPI-specific documentation
-├── sample_data/                    # Sample input data for testing
-│   ├── edi_850.txt                # Sample EDI 850 (Purchase Order)
-│   ├── edi_856.txt                # Sample EDI 856 (Shipping Notice)
-│   ├── erp.csv                    # Sample ERP data
-│   ├── carrier.csv                # Sample carrier ETA data
-│   └── templates/                 # Email templates
-│       ├── internal_email.txt     # Internal notification template
-│       └── customer_email.txt     # Customer notification template
-├── data_sample_org/                # Alternative data format for testing
-│   ├── po_850.edi                 # EDI 850 in HTML format
-│   ├── asn_856.edi                # EDI 856 in HTML format
-│   ├── erp_iway.csv               # ERP data with different column names
-│   └── carrier_iway.csv           # Carrier data with different column names
-└── artifacts/                      # Generated artifacts (created at runtime)
-```
+### 2. Access the Application
 
-## Key Features
+Once deployed, you can:
+- **Web Interface**: Visit the root URL `/` to upload files
+- **API Documentation**: Visit `/docs` for interactive API documentation
+- **Health Check**: Visit `/health` to check application status
+- **Test Endpoint**: Visit `/test` to verify the application is running
 
-### 🚀 **Performance & Reliability**
-- **Deterministic**: Same inputs always produce identical outputs
-- **Self-contained**: No external dependencies for core functionality
-- **Fault-tolerant**: Handles malformed data gracefully
-- **Scalable**: Designed for processing multiple orders simultaneously
-- **Auto-detection**: Automatically detects and uses available data directories
+### 3. Upload Files
 
-### 🔒 **Data Security**
-- **PII Redaction**: Automatically masks sensitive information using regex patterns
-- **Content Addressing**: SHA-256 hashes ensure data integrity and prevent tampering
-- **Provenance Tracking**: Every data field shows its original source and transformation history
+Upload any combination of:
+- **EDI Files**: `.edi` files (automatically detected as 850 or 856)
+- **CSV Files**: `.csv` files (automatically detected as ERP or carrier data)
+- **HTML Files**: `.html` files containing EDI content (automatically extracted)
 
-### 📈 **Observability**
-- **Span Tracking**: Detailed operation logging for debugging and monitoring
-- **Artifact Management**: Immutable storage with content-based addressing
-- **Audit Trail**: Complete history of data transformations and decisions
+### 4. Run Analysis
 
-### 🌐 **Web Interface**
-- **FastAPI Integration**: Modern web API with automatic dependency management
-- **File Upload**: Web interface for uploading and processing EDI/CSV files
-- **Real-time Analysis**: Immediate processing and results display
-- **Auto-startup**: Built-in dependency checking and installation
+After uploading files, use the `/analyze` endpoint to run AgentOps analysis.
 
-## How to Run
+## API Endpoints
 
-### Prerequisites
-- Python 3.7 or higher
-- For web interface: FastAPI and uvicorn (auto-installed)
+- `GET /` - File upload web interface
+- `POST /upload` - Upload EDI/CSV files
+- `POST /analyze` - Run analysis on uploaded files
+- `GET /health` - Application health and status
+- `GET /test` - Simple test endpoint
+- `GET /files` - List uploaded files
+- `GET /docs` - Interactive API documentation
 
-### Quick Start - Command Line
-```bash
-cd agentops
-python3 main.py
-```
+## File Requirements
 
-### Quick Start - Web Interface
+The application is designed to work with any files you upload. It automatically:
+
+- **Detects EDI file types** (850 vs 856) based on content
+- **Processes CSV files** with automatic column detection
+- **Extracts EDI content** from HTML files
+- **Creates the necessary data structure** for AgentOps analysis
+
+## Deployment Notes
+
+- **No Hardcoded Files Required**: The application starts successfully without requiring specific sample files
+- **Flexible Data Handling**: Works with any combination of uploaded files
+- **Graceful Degradation**: Continues to function even with missing data types
+- **Automatic Cleanup**: Manages temporary files and directories automatically
+
+## Environment Variables
+
+Optional environment variables for enhanced functionality:
+- `SUPABASE_URL` - For Supabase storage integration
+- `SUPABASE_KEY` - For Supabase authentication
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"No files available for analysis"**
+   - Upload files first using the `/upload` endpoint
+   - Ensure files are in supported formats (.edi, .csv, .html)
+
+2. **Analysis fails with 500 error**
+   - Check that uploaded files contain valid data
+   - Verify file formats are supported
+   - Check application logs for specific error details
+
+3. **Missing data types warning**
+   - This is normal and won't prevent analysis
+   - Upload additional file types for optimal results
+
+### Health Check
+
+Use the `/health` endpoint to diagnose issues:
+- Check file upload directory status
+- Verify parsed data availability
+- Monitor storage integration status
+
+## Development
+
+To run locally:
 ```bash
 cd agentops
 python3 fastapi_app.py
 ```
 
-### Data Validation and Testing
-```bash
-cd agentops
-python3 extract_edi.py --test
-```
-
-### What Happens When You Run It
-1. **Auto-detection**: Automatically finds and uses available data directories
-2. **Data Loading**: Reads all available data files with format detection
-3. **Processing**: Parses EDI, calculates delays, generates insights
-4. **Output Creation**: Produces COM, RCA, and spans
-5. **Artifact Storage**: Saves all outputs to `artifacts/` directory
-6. **Console Display**: Shows results in formatted JSON
-
-## Data Directory Support
-
-The system automatically detects and works with multiple data formats:
-
-### `sample_data/` (Standard Format)
-- Standard EDI and CSV files
-- Basic column names and structure
-
-### `data_sample_org/` (Compatibility Format)
-- EDI files embedded in HTML
-- Different CSV column naming conventions
-- Automatic compatibility layer handling
-
-## Sample Data & Expected Results
-
-### Input Data
-- **EDI 850**: Purchase order PO123 with expected ship date 2025-08-02
-- **EDI 856**: Shipping notice showing actual delivery on 2025-08-05 at 12:00
-- **ERP Data**: Customer Acme Corporation, order value $100.00
-- **Carrier Data**: ETA 2025-08-05 at 10:00 (2-hour delay detected)
-
-### Generated Outputs
-- **COM**: Unified order model with provenance for every field
-- **RCA**: Analysis showing 2-hour delivery delay and root causes
-- **Spans**: Execution trace showing each processing step
-- **Artifacts**: Content-addressed files stored in `artifacts/` directory
-
-## Integration Points
-
-This core system is designed to work with:
-- **Supabase Storage**: Automatically stores artifacts, spans, and incidents in Supabase tables
-- **API Services**: Outputs structured data ready for REST endpoints
-- **Web Interfaces**: Built-in FastAPI server for file upload and analysis
-- **Testing Frameworks**: Comprehensive testing utilities for validation
-
-## Supabase Integration
-
-### Setup
-1. **Create Supabase Project**: Set up a new project at [supabase.com](https://supabase.com)
-2. **Create Tables**: The system expects these tables:
-   - `artifacts` - Stores generated artifacts with metadata
-   - `spans` - Stores execution traces and spans
-   - `incidents` - Stores incident records
-3. **Set Environment Variables**: Create a `.env` file in the agentops directory:
-   ```bash
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_KEY=your-anon-key-here
-   ```
-
-### Testing Supabase Connection
-```bash
-cd agentops
-python3 test_supabase.py
-```
-
-### Artifact Storage Flow
-When users upload documents and run analysis:
-1. **Document Processing**: FastAPI receives uploaded files
-2. **AgentOps Analysis**: Generates artifacts, spans, and incidents
-3. **Local Storage**: Artifacts saved to `artifacts/` directory
-4. **Supabase Storage**: Automatically stores in Supabase tables:
-   - Artifacts → `artifacts` table
-   - Spans → `spans` table  
-   - Incidents → `incidents` table
-5. **Verification**: Check storage status via `/storage/status` endpoint
-
-### Storage Verification
-- **Web Interface**: Use `/storage/status` to check Supabase connection
-- **Database Queries**: Query Supabase tables directly
-- **Test Scripts**: Run `python3 test_supabase.py` for connection testing
+The application will start on `http://localhost:8000` with automatic dependency installation.

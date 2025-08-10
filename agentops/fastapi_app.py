@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 import json
+import datetime
 
 # Import our existing AgentOps implementation
 from agent_ops import AgentOps
@@ -73,25 +74,16 @@ def test_data_sample_org():
             print(f"❌ Data directory not found: {data_dir}")
             return False
         
-        # List available files
-        required_files = [
-            "po_850_raw.edi",    # EDI 850 Purchase Order
-            "asn_856_raw.edi",   # EDI 856 Advanced Shipping Notice
-            "erp_iway.csv",      # ERP data
-            "carrier_iway.csv"   # Carrier ETA data
-        ]
-        
-        missing_files = []
-        for file_name in required_files:
-            file_path = data_dir / file_name
-            if not file_path.exists():
-                missing_files.append(file_name)
-        
-        if missing_files:
-            print(f"❌ Missing required files: {', '.join(missing_files)}")
+        # Check if there are any files in the directory (more flexible)
+        available_files = list(data_dir.glob("*"))
+        if not available_files:
+            print(f"⚠️  No files found in data directory: {data_dir}")
             return False
         
-        print("✅ All required files found!")
+        print(f"📁 Found {len(available_files)} files in data directory:")
+        for file_path in available_files:
+            if file_path.is_file():
+                print(f"   - {file_path.name}")
         
         # Test AgentOps initialization (but don't fail if it doesn't work)
         try:
@@ -100,11 +92,11 @@ def test_data_sample_org():
             return True
         except Exception as e:
             print(f"⚠️  AgentOps initialization failed: {e}")
-            print("   This is okay for deployment - AgentOps will be initialized when needed")
+            print("   This is normal for fresh deployments without sample data")
             return False
             
     except Exception as e:
-        print(f"⚠️  Data test failed with error: {e}")
+        print(f"⚠️  Data test error: {e}")
         return False
 
 # Initialize FastAPI app
@@ -124,6 +116,9 @@ DATA_DIR.mkdir(exist_ok=True)
 
 # Track if we have uploaded data
 HAS_UPLOADED_DATA = False
+
+# Store parsed data from uploads
+UPLOADED_PARSED_DATA = {}
 
 class StorageResults(BaseModel):
     """Model for storage operation results."""
@@ -181,17 +176,19 @@ async def startup_event():
     else:
         print("✅ All dependencies are available!")
     
-    # Test the data first
-    print("\n🧪 Testing data_sample_org data...")
+    # Test the data first (optional - won't block startup)
+    print("\n🧪 Testing data_sample_org data (optional)...")
     try:
         if test_data_sample_org():
             print("✅ Data test passed!")
         else:
-            print("❌ Data test failed!")
-            print("\nContinuing anyway...")
+            print("⚠️ Data test failed - this is normal for fresh deployments")
+            print("   Users can upload their own files for analysis")
+            print("   The application will work without sample data")
     except Exception as e:
         print(f"⚠️ Could not run data test: {e}")
-        print("Continuing anyway...")
+        print("   This is normal and won't affect functionality")
+        print("   The application is ready to accept user uploads")
     
     # Initialize storage integration if available
     global storage_integration
@@ -352,18 +349,16 @@ async def get_upload_page():
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_files(files: List[UploadFile] = File(...)):
-    """Handle file uploads and process them."""
+    """Upload and process EDI and CSV files."""
     global HAS_UPLOADED_DATA
     
     try:
-        if not files:
-            raise HTTPException(status_code=400, detail="No files provided")
-        
         print(f"📁 Upload endpoint called with {len(files)} files")
         print(f"📁 UPLOAD_DIR: {UPLOAD_DIR}")
         print(f"📁 DATA_DIR: {DATA_DIR}")
         
         processed_files = []
+        parsed_data = {}
         
         for file in files:
             if file.filename:
@@ -386,8 +381,69 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     if extract_edi_from_html(file_path, edi_path):
                         processed_files.append(f"EDI extracted from {file.filename}")
                         HAS_UPLOADED_DATA = True
+                        
+                        # Parse the extracted EDI file
+                        try:
+                            from agent_ops import read_edi_file
+                            edi_segments = read_edi_file(edi_path)
+                            # Determine if this is 850 or 856 based on content
+                            if any('850' in segment[0] for segment in edi_segments if segment):
+                                parsed_data['edi_850'] = edi_segments
+                            elif any('856' in segment[0] for segment in edi_segments if segment):
+                                parsed_data['edi_856'] = edi_segments
+                            else:
+                                # Default to 850 if can't determine
+                                if 'edi_850' not in parsed_data:
+                                    parsed_data['edi_850'] = edi_segments
+                                else:
+                                    parsed_data['edi_856'] = edi_segments
+                        except Exception as e:
+                            print(f"⚠️  Could not parse EDI file: {e}")
+                elif file.filename.endswith('.edi'):
+                    # Copy EDI file directly
+                    dest_path = DATA_DIR / file.filename
+                    shutil.copy2(file_path, dest_path)
+                    processed_files.append(f"Uploaded {file.filename}")
+                    HAS_UPLOADED_DATA = True
+                    
+                    # Parse the EDI file
+                    try:
+                        from agent_ops import read_edi_file
+                        edi_segments = read_edi_file(dest_path)
+                        # Determine if this is 850 or 856 based on content
+                        if any('850' in segment[0] for segment in edi_segments if segment):
+                            parsed_data['edi_850'] = edi_segments
+                        elif any('856' in segment[0] for segment in edi_segments if segment):
+                            parsed_data['edi_856'] = edi_segments
+                        else:
+                            # Default to 850 if can't determine
+                            if 'edi_850' not in parsed_data:
+                                parsed_data['edi_850'] = edi_segments
+                            else:
+                                parsed_data['edi_856'] = edi_segments
+                    except Exception as e:
+                        print(f"⚠️  Could not parse EDI file: {e}")
+                elif file.filename.endswith('.csv'):
+                    # Copy CSV file directly
+                    dest_path = DATA_DIR / file.filename
+                    shutil.copy2(file_path, dest_path)
+                    processed_files.append(f"Uploaded {file.filename}")
+                    HAS_UPLOADED_DATA = True
+                    
+                    # Parse the CSV file
+                    try:
+                        if 'erp' not in parsed_data:
+                            # Try to parse as ERP data
+                            erp_data = parse_erp_csv_compatible(dest_path)
+                            parsed_data['erp'] = erp_data
+                        elif 'carrier' not in parsed_data:
+                            # Try to parse as carrier data
+                            carrier_data = parse_carrier_csv_compatible(dest_path)
+                            parsed_data['carrier'] = carrier_data
+                    except Exception as e:
+                        print(f"⚠️  Could not parse CSV file: {e}")
                 else:
-                    # Copy to data directory
+                    # Copy other file types
                     dest_path = DATA_DIR / file.filename
                     shutil.copy2(file_path, dest_path)
                     processed_files.append(f"Uploaded {file.filename}")
@@ -395,7 +451,22 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 
                 print(f"✅ File processed: {file.filename}")
         
+        # Store parsed data globally for analysis
+        global UPLOADED_PARSED_DATA
+        UPLOADED_PARSED_DATA = parsed_data
+        
+        # Validate that we have minimum required data
+        required_keys = ['edi_850', 'edi_856', 'erp', 'carrier']
+        missing_keys = [key for key in required_keys if key not in parsed_data]
+        
+        if missing_keys:
+            print(f"⚠️  Missing some data types: {missing_keys}")
+            print("   Analysis may not work optimally without all data types")
+        else:
+            print("✅ All required data types are available!")
+        
         print(f"🎉 Successfully processed {len(processed_files)} files")
+        print(f"📊 Parsed data keys: {list(parsed_data.keys())}")
         
         return UploadResponse(
             message=f"Successfully processed {len(processed_files)} files",
@@ -416,18 +487,63 @@ async def run_analysis():
         # Initialize AgentOps
         base_dir = Path(__file__).resolve().parent
         
-        # Check if we have uploaded files, otherwise use data_sample_org for testing
-        if HAS_UPLOADED_DATA and DATA_DIR.exists() and any(DATA_DIR.glob("*")):
-            # Use uploaded data
-            agent = AgentOps(base_dir, data_dir_name="data_sample_org")
+        # Check if we have uploaded files with parsed data
+        if HAS_UPLOADED_DATA and UPLOADED_PARSED_DATA and any(UPLOADED_PARSED_DATA.keys()):
+            # Use uploaded parsed data directly
+            print("📁 Using uploaded parsed data for analysis...")
+            print(f"📊 Available data: {list(UPLOADED_PARSED_DATA.keys())}")
+            
+            # Check if we have minimum required data
+            required_keys = ['edi_850', 'edi_856', 'erp', 'carrier']
+            missing_keys = [key for key in required_keys if key not in UPLOADED_PARSED_DATA]
+            
+            if missing_keys:
+                print(f"⚠️  Missing some data types: {missing_keys}")
+                print("   Analysis may not work optimally without all data types")
+                print("   Continuing with available data...")
+            
+            # Initialize AgentOps with parsed data
+            agent = AgentOps(base_dir, parsed_data=UPLOADED_PARSED_DATA)
+        elif HAS_UPLOADED_DATA and DATA_DIR.exists() and any(DATA_DIR.glob("*")):
+            # Use uploaded files - create a temporary directory with the uploaded files
+            print("📁 Using uploaded files for analysis...")
+            # Create a temporary working directory with uploaded files
+            temp_work_dir = Path(__file__).resolve().parent / "temp_analysis"
+            temp_work_dir.mkdir(exist_ok=True)
+            
+            # Copy uploaded files to temp directory
+            for file_path in DATA_DIR.glob("*"):
+                if file_path.is_file():
+                    shutil.copy2(file_path, temp_work_dir / file_path.name)
+            
+            # Use the temp directory for analysis
+            agent = AgentOps(base_dir, data_dir_name="temp_analysis")
         else:
-            # Fall back to data_sample_org for testing
-            agent = AgentOps(base_dir, data_dir_name="data_sample_org")
+            # Fall back to data_sample_org for testing if available
+            print("📁 No uploaded files found, checking for sample data...")
+            sample_data_dir = base_dir / "data_sample_org"
+            if sample_data_dir.exists() and any(sample_data_dir.glob("*")):
+                print("📁 Using sample data for analysis...")
+                agent = AgentOps(base_dir, data_dir_name="data_sample_org")
+            else:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="No files available for analysis. Please upload EDI/CSV files first using the /upload endpoint."
+                )
         
         # Run analysis
         print("🔍 Running AgentOps analysis...")
         com_json, rca_json, spans = agent.run()
         print("✅ Analysis completed successfully!")
+        
+        # Clean up temporary directory if it was created
+        temp_work_dir = Path(__file__).resolve().parent / "temp_analysis"
+        if temp_work_dir.exists():
+            try:
+                shutil.rmtree(temp_work_dir)
+                print("🧹 Cleaned up temporary analysis directory")
+            except Exception as e:
+                print(f"⚠️  Could not clean up temp directory: {e}")
         
         # Convert spans to serializable format
         spans_data = []
@@ -493,6 +609,24 @@ async def run_analysis():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
+@app.get("/test")
+async def test_endpoint():
+    """Simple test endpoint to verify the application is working."""
+    return {
+        "message": "AgentOps FastAPI is running!",
+        "status": "ok",
+        "timestamp": datetime.datetime.now().isoformat(),
+        "available_endpoints": [
+            "/ - File upload interface",
+            "/upload - Upload files endpoint",
+            "/analyze - Run analysis endpoint",
+            "/health - Health check",
+            "/files - List uploaded files",
+            "/docs - API documentation"
+        ],
+        "note": "Upload EDI/CSV files to get started with analysis"
+    }
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint with directory status."""
@@ -523,23 +657,36 @@ async def health_check():
             except Exception as e:
                 data_writable = False
         
+        def list_files_in_dir(directory: Path) -> List[str]:
+            """Helper to list files in a directory."""
+            if not directory.exists():
+                return []
+            return [f.name for f in directory.iterdir() if f.is_file()]
+
         return {
             "status": "healthy",
-            "service": "AgentOps FastAPI",
-            "directories": {
-                "upload_dir": {
-                    "path": str(UPLOAD_DIR),
-                    "exists": upload_dir_exists,
-                    "writable": upload_writable
-                },
-                "data_dir": {
-                    "path": str(DATA_DIR),
-                    "exists": data_dir_exists,
-                    "writable": data_writable
-                }
+            "timestamp": datetime.datetime.now().isoformat(),
+            "upload_dir": {
+                "path": str(UPLOAD_DIR),
+                "exists": upload_dir_exists,
+                "writable": upload_writable,
+                "files": list_files_in_dir(UPLOAD_DIR) if upload_dir_exists else []
             },
-            "current_working_dir": str(Path.cwd()),
-            "script_location": str(Path(__file__).resolve())
+            "data_dir": {
+                "path": str(DATA_DIR),
+                "exists": data_dir_exists,
+                "writable": data_writable,
+                "files": list_files_in_dir(DATA_DIR) if data_dir_exists else []
+            },
+            "uploaded_data": {
+                "has_uploaded_data": HAS_UPLOADED_DATA,
+                "parsed_data_keys": list(UPLOADED_PARSED_DATA.keys()) if UPLOADED_PARSED_DATA else [],
+                "parsed_data_count": len(UPLOADED_PARSED_DATA) if UPLOADED_PARSED_DATA else 0
+            },
+            "storage": {
+                "available": STORAGE_AVAILABLE,
+                "integration_ready": storage_integration.is_available() if storage_integration else False
+            }
         }
     except Exception as e:
         return {
