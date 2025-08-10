@@ -77,21 +77,32 @@ function SubmitButton() {
     if (!ready) return
     setLoading(true)
     try {
+      // Step 1: Upload files
       const form = new FormData()
       if (edi850) form.append('files', edi850, edi850.name)
       if (edi856) form.append('files', edi856, edi856.name)
       if (carrierCsv) form.append('files', carrierCsv, carrierCsv.name)
       if (erpCsv) form.append('files', erpCsv, erpCsv.name)
-      // Also include a small HTML summary payload (optional) and the ETA threshold
       form.append('eta_threshold_hours', String(etaThresholdHours))
 
-      // Call our local proxy to avoid CORS issues
-      const res = await fetch('/api/upload', { method: 'POST', body: form })
-      if (!res.ok) throw new Error('Upload failed')
-      const data = await res.json()
-      const response: UploadResponse = { ...data, success: true }
+      const uploadRes = await fetch('/api/upload', { method: 'POST', body: form })
+      if (!uploadRes.ok) throw new Error('Upload failed')
+      const uploadData = await uploadRes.json()
+      
+      // Step 2: Run analysis
+      const analysisRes = await fetch('/api/analyze', { method: 'POST' })
+      if (!analysisRes.ok) throw new Error('Analysis failed')
+      const analysisData = await analysisRes.json()
+      
+      // Combine results
+      const response: UploadResponse = { 
+        ...uploadData, 
+        success: true,
+        analysis: analysisData
+      }
       setResult(response)
       setUploadResult(response)
+      
       // Navigate to incidents page
       router.push('/incidents')
     } catch (e) {

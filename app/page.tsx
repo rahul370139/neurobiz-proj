@@ -107,6 +107,7 @@ function TopNav() {
       <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
         <div className="flex items-center gap-2 font-semibold"><div className="grid h-7 w-7 place-items-center rounded-md bg-slate-900 text-white">CT</div> Control Tower</div>
         <div className="ml-auto flex items-center gap-3 text-xs text-slate-500">
+          <Link href="/dashboard" className="rounded-md bg-muted px-2 py-1 shadow-sm hover:bg-slate-200">Dashboard</Link>
           <span className="rounded-md bg-muted px-2 py-1 shadow-sm">Load Sample Data</span>
         </div>
       </div>
