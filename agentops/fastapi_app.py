@@ -64,41 +64,47 @@ def test_data_sample_org():
     """Test the data_sample_org data with AgentOps."""
     print("🧪 Testing data_sample_org Data with AgentOps")
     
-    # Get the current directory
-    base_dir = Path(__file__).resolve().parent
-    data_dir = base_dir / "data_sample_org"
-    
-    if not data_dir.exists():
-        print(f"❌ Data directory not found: {data_dir}")
-        return False
-    
-    # List available files
-    required_files = [
-        "po_850_raw.edi",    # EDI 850 Purchase Order
-        "asn_856_raw.edi",   # EDI 856 Advanced Shipping Notice
-        "erp_iway.csv",      # ERP data
-        "carrier_iway.csv"   # Carrier ETA data
-    ]
-    
-    missing_files = []
-    for file_name in required_files:
-        file_path = data_dir / file_name
-        if not file_path.exists():
-            missing_files.append(file_name)
-    
-    if missing_files:
-        print(f"❌ Missing required files: {', '.join(missing_files)}")
-        return False
-    
-    print("✅ All required files found!")
-    
-    # Test AgentOps initialization
     try:
-        agent = AgentOps(base_dir, data_dir_name="data_sample_org")
-        print("✅ AgentOps initialized successfully!")
-        return True
+        # Get the current directory
+        base_dir = Path(__file__).resolve().parent
+        data_dir = base_dir / "data_sample_org"
+        
+        if not data_dir.exists():
+            print(f"❌ Data directory not found: {data_dir}")
+            return False
+        
+        # List available files
+        required_files = [
+            "po_850_raw.edi",    # EDI 850 Purchase Order
+            "asn_856_raw.edi",   # EDI 856 Advanced Shipping Notice
+            "erp_iway.csv",      # ERP data
+            "carrier_iway.csv"   # Carrier ETA data
+        ]
+        
+        missing_files = []
+        for file_name in required_files:
+            file_path = data_dir / file_name
+            if not file_path.exists():
+                missing_files.append(file_name)
+        
+        if missing_files:
+            print(f"❌ Missing required files: {', '.join(missing_files)}")
+            return False
+        
+        print("✅ All required files found!")
+        
+        # Test AgentOps initialization (but don't fail if it doesn't work)
+        try:
+            agent = AgentOps(base_dir, data_dir_name="data_sample_org")
+            print("✅ AgentOps initialized successfully!")
+            return True
+        except Exception as e:
+            print(f"⚠️  AgentOps initialization failed: {e}")
+            print("   This is okay for deployment - AgentOps will be initialized when needed")
+            return False
+            
     except Exception as e:
-        print(f"❌ Failed to initialize AgentOps: {e}")
+        print(f"⚠️  Data test failed with error: {e}")
         return False
 
 # Initialize FastAPI app
@@ -149,12 +155,13 @@ async def startup_event():
     print("🚀 AgentOps FastAPI Starting Up")
     print("=" * 50)
     
-    # Check current directory
-    current_dir = Path.cwd()
-    print(f"📁 Current directory: {current_dir}")
+    # Check script directory instead of current working directory
+    script_dir = Path(__file__).resolve().parent
+    print(f"📁 Script directory: {script_dir}")
+    print(f"📁 Current working directory: {Path.cwd()}")
     
-    # Check if we're in the right directory
-    if not (current_dir / "agent_ops.py").exists():
+    # Check if we're in the right directory (use script location)
+    if not (script_dir / "agent_ops.py").exists():
         print("❌ Please run this script from the agentops directory")
         print("   cd agentops")
         print("   python3 fastapi_app.py")
