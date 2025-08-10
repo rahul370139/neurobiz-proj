@@ -109,11 +109,12 @@ app = FastAPI(
 )
 
 # Create temporary directory for uploads
-UPLOAD_DIR = Path("temp_uploads")
+UPLOAD_DIR = Path(__file__).resolve().parent / "temp_uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 # Data directory for processing - will use data_sample_org for testing
-DATA_DIR = Path("data_sample_org")
+DATA_DIR = Path(__file__).resolve().parent / "data_sample_org"
+DATA_DIR.mkdir(exist_ok=True)
 
 # Track if we have uploaded data
 HAS_UPLOADED_DATA = False
@@ -347,38 +348,59 @@ async def upload_files(files: List[UploadFile] = File(...)):
     """Handle file uploads and process them."""
     global HAS_UPLOADED_DATA
     
-    if not files:
-        raise HTTPException(status_code=400, detail="No files provided")
-    
-    processed_files = []
-    
-    for file in files:
-        if file.filename:
-            # Save uploaded file
-            file_path = UPLOAD_DIR / file.filename
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            
-            # Process based on file type
-            if file.filename.endswith('.html'):
-                # Extract EDI from HTML
-                edi_filename = file.filename.replace('.html', '_raw.edi')
-                edi_path = DATA_DIR / edi_filename
-                if extract_edi_from_html(file_path, edi_path):
-                    processed_files.append(f"EDI extracted from {file.filename}")
+    try:
+        if not files:
+            raise HTTPException(status_code=400, detail="No files provided")
+        
+        print(f"📁 Upload endpoint called with {len(files)} files")
+        print(f"📁 UPLOAD_DIR: {UPLOAD_DIR}")
+        print(f"📁 DATA_DIR: {DATA_DIR}")
+        
+        processed_files = []
+        
+        for file in files:
+            if file.filename:
+                print(f"📄 Processing file: {file.filename}")
+                
+                # Save uploaded file
+                file_path = UPLOAD_DIR / file.filename
+                print(f"💾 Saving to: {file_path}")
+                
+                with open(file_path, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+                
+                print(f"✅ File saved successfully: {file_path}")
+                
+                # Process based on file type
+                if file.filename.endswith('.html'):
+                    # Extract EDI from HTML
+                    edi_filename = file.filename.replace('.html', '_raw.edi')
+                    edi_path = DATA_DIR / edi_filename
+                    if extract_edi_from_html(file_path, edi_path):
+                        processed_files.append(f"EDI extracted from {file.filename}")
+                        HAS_UPLOADED_DATA = True
+                else:
+                    # Copy to data directory
+                    dest_path = DATA_DIR / file.filename
+                    shutil.copy2(file_path, dest_path)
+                    processed_files.append(f"Uploaded {file.filename}")
                     HAS_UPLOADED_DATA = True
-            else:
-                # Copy to data directory
-                dest_path = DATA_DIR / file.filename
-                shutil.copy2(file_path, dest_path)
-                processed_files.append(f"Uploaded {file.filename}")
-                HAS_UPLOADED_DATA = True
-    
-    return UploadResponse(
-        message=f"Successfully processed {len(processed_files)} files",
-        files_processed=processed_files,
-        next_step="Analysis will start automatically in a few seconds..."
-    )
+                
+                print(f"✅ File processed: {file.filename}")
+        
+        print(f"🎉 Successfully processed {len(processed_files)} files")
+        
+        return UploadResponse(
+            message=f"Successfully processed {len(processed_files)} files",
+            files_processed=processed_files,
+            next_step="Analysis will start automatically in a few seconds..."
+        )
+        
+    except Exception as e:
+        print(f"❌ Error in upload endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/analyze", response_model=AnalysisResult)
 async def run_analysis():
@@ -466,8 +488,58 @@ async def run_analysis():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "AgentOps FastAPI"}
+    """Health check endpoint with directory status."""
+    try:
+        # Check directory status
+        upload_dir_exists = UPLOAD_DIR.exists()
+        data_dir_exists = DATA_DIR.exists()
+        
+        # Check if directories are writable
+        upload_writable = False
+        data_writable = False
+        
+        if upload_dir_exists:
+            try:
+                test_file = UPLOAD_DIR / "test.txt"
+                test_file.write_text("test")
+                test_file.unlink()
+                upload_writable = True
+            except Exception as e:
+                upload_writable = False
+        
+        if data_dir_exists:
+            try:
+                test_file = DATA_DIR / "test.txt"
+                test_file.write_text("test")
+                test_file.unlink()
+                data_writable = True
+            except Exception as e:
+                data_writable = False
+        
+        return {
+            "status": "healthy",
+            "service": "AgentOps FastAPI",
+            "directories": {
+                "upload_dir": {
+                    "path": str(UPLOAD_DIR),
+                    "exists": upload_dir_exists,
+                    "writable": upload_writable
+                },
+                "data_dir": {
+                    "path": str(DATA_DIR),
+                    "exists": data_dir_exists,
+                    "writable": data_writable
+                }
+            },
+            "current_working_dir": str(Path.cwd()),
+            "script_location": str(Path(__file__).resolve())
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "service": "AgentOps FastAPI"
+        }
 
 @app.get("/files")
 async def list_uploaded_files():
