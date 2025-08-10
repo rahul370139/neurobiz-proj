@@ -138,7 +138,43 @@ The system automatically detects and works with multiple data formats:
 ## Integration Points
 
 This core system is designed to work with:
-- **Storage Backends**: Can connect to databases like Supabase for persistence
+- **Supabase Storage**: Automatically stores artifacts, spans, and incidents in Supabase tables
 - **API Services**: Outputs structured data ready for REST endpoints
 - **Web Interfaces**: Built-in FastAPI server for file upload and analysis
 - **Testing Frameworks**: Comprehensive testing utilities for validation
+
+## Supabase Integration
+
+### Setup
+1. **Create Supabase Project**: Set up a new project at [supabase.com](https://supabase.com)
+2. **Create Tables**: The system expects these tables:
+   - `artifacts` - Stores generated artifacts with metadata
+   - `spans` - Stores execution traces and spans
+   - `incidents` - Stores incident records
+3. **Set Environment Variables**: Create a `.env` file in the agentops directory:
+   ```bash
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_KEY=your-anon-key-here
+   ```
+
+### Testing Supabase Connection
+```bash
+cd agentops
+python3 test_supabase.py
+```
+
+### Artifact Storage Flow
+When users upload documents and run analysis:
+1. **Document Processing**: FastAPI receives uploaded files
+2. **AgentOps Analysis**: Generates artifacts, spans, and incidents
+3. **Local Storage**: Artifacts saved to `artifacts/` directory
+4. **Supabase Storage**: Automatically stores in Supabase tables:
+   - Artifacts → `artifacts` table
+   - Spans → `spans` table  
+   - Incidents → `incidents` table
+5. **Verification**: Check storage status via `/storage/status` endpoint
+
+### Storage Verification
+- **Web Interface**: Use `/storage/status` to check Supabase connection
+- **Database Queries**: Query Supabase tables directly
+- **Test Scripts**: Run `python3 test_supabase.py` for connection testing

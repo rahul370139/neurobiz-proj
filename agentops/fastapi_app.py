@@ -28,6 +28,14 @@ from agent_ops import AgentOps
 from extract_edi import extract_edi_from_html
 from csv_compatibility import parse_erp_csv_compatible, parse_carrier_csv_compatible
 
+# Import storage integration
+try:
+    from storage_integration import FastAPIStorageIntegration
+    STORAGE_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Storage integration not available: {e}")
+    STORAGE_AVAILABLE = False
+
 def install_dependencies():
     """Install required dependencies."""
     print("📦 Installing dependencies...")
@@ -110,6 +118,15 @@ DATA_DIR = Path("data_sample_org")
 # Track if we have uploaded data
 HAS_UPLOADED_DATA = False
 
+class StorageResults(BaseModel):
+    """Model for storage operation results."""
+    success: bool
+    artifacts_stored: int
+    spans_stored: int
+    incident_created: bool
+    order_id: str
+    error: Optional[str] = None
+
 class AnalysisResult(BaseModel):
     order_id: str
     incidents_count: int
@@ -118,6 +135,7 @@ class AnalysisResult(BaseModel):
     com_json: dict
     rca_json: dict
     spans: List[dict]
+    storage_results: Optional[StorageResults] = None  # Updated to use specific model
 
 class UploadResponse(BaseModel):
     message: str
@@ -166,6 +184,22 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not run data test: {e}")
         print("Continuing anyway...")
+    
+    # Initialize storage integration if available
+    global storage_integration
+    if STORAGE_AVAILABLE:
+        print("\n💾 Initializing storage integration...")
+        try:
+            storage_integration = FastAPIStorageIntegration()
+            if storage_integration.is_available():
+                print("✅ Supabase storage integration ready!")
+            else:
+                print("⚠️  Storage integration not available")
+        except Exception as e:
+            print(f"⚠️  Storage integration failed: {e}")
+    else:
+        print("⚠️  Storage integration not available")
+        storage_integration = None
     
     print("\n🌐 FastAPI server ready!")
     print("📚 API documentation available at: /docs")
@@ -362,7 +396,9 @@ async def run_analysis():
             agent = AgentOps(base_dir, data_dir_name="data_sample_org")
         
         # Run analysis
+        print("🔍 Running AgentOps analysis...")
         com_json, rca_json, spans = agent.run()
+        print("✅ Analysis completed successfully!")
         
         # Convert spans to serializable format
         spans_data = []
@@ -378,7 +414,38 @@ async def run_analysis():
                 "attributes": span.attributes
             })
         
-        return AnalysisResult(
+        # Store results in Supabase if storage is available
+        storage_results = None
+        if storage_integration and storage_integration.is_available():
+            print("\n💾 Storing analysis results in Supabase...")
+            artifacts_dir = base_dir / "artifacts"
+            
+            # Ensure artifacts directory exists
+            if not artifacts_dir.exists():
+                print(f"⚠️  Artifacts directory not found: {artifacts_dir}")
+                print("   This may indicate that AgentOps didn't generate artifacts")
+            else:
+                print(f"📁 Found artifacts directory: {artifacts_dir}")
+                artifact_files = list(artifacts_dir.glob("*"))
+                print(f"   Found {len(artifact_files)} artifact files")
+            
+            storage_results = storage_integration.store_analysis_results(
+                com_json, rca_json, spans, artifacts_dir
+            )
+            
+            if storage_results.get("success"):
+                print(f"✅ Storage successful: {storage_results['artifacts_stored']} artifacts, "
+                      f"{storage_results['spans_stored']} spans, "
+                      f"incident: {storage_results['incident_created']}")
+            else:
+                print(f"⚠️  Storage issues: {storage_results.get('error', 'Unknown error')}")
+        else:
+            print("\n⚠️  Supabase storage not available")
+            print("   Artifacts are only stored locally in the artifacts/ directory")
+            print("   To enable Supabase storage, set SUPABASE_URL and SUPABASE_KEY environment variables")
+        
+        # Create response with storage info
+        response = AnalysisResult(
             order_id=com_json.get('order_id', {}).get('value', 'N/A'),
             incidents_count=1 if rca_json.get('status') != 'no_incident' else 0,
             processing_steps=len(spans),
@@ -387,6 +454,12 @@ async def run_analysis():
             rca_json=rca_json,
             spans=spans_data
         )
+        
+        # Add storage results to response if available
+        if storage_results:
+            response.storage_results = StorageResults(**storage_results) # Convert dict to model
+        
+        return response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -422,6 +495,51 @@ async def list_uploaded_files():
                 })
     
     return {"files": files}
+
+@app.get("/storage/status")
+async def get_storage_status():
+    """Get the current status of Supabase storage integration."""
+    if not storage_integration:
+        return {
+            "status": "not_available",
+            "initialized": False,
+            "message": "Storage integration module not available"
+        }
+    
+    return {
+        "status": "available" if storage_integration.is_available() else "not_available",
+        "initialized": storage_integration.is_available(),
+        "message": "Storage integration is working" if storage_integration.is_available() else "Storage integration not initialized"
+    }
+
+@app.get("/storage/incidents")
+async def get_all_incidents():
+    """Get all incidents from Supabase storage."""
+    if not storage_integration or not storage_integration.is_available():
+        raise HTTPException(status_code=503, detail="Storage not available")
+    
+    try:
+        incidents = storage_integration.get_all_incidents()
+        return {"incidents": incidents, "count": len(incidents)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve incidents: {str(e)}")
+
+@app.get("/storage/order/{order_id}")
+async def get_order_summary(order_id: str):
+    """Get comprehensive summary of an order from Supabase storage."""
+    if not storage_integration or not storage_integration.is_available():
+        raise HTTPException(status_code=503, detail="Storage not available")
+    
+    try:
+        summary = storage_integration.get_order_summary(order_id)
+        if summary:
+            return summary
+        else:
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve order summary: {str(e)}")
 
 def run_server():
     """Run the FastAPI server with uvicorn."""

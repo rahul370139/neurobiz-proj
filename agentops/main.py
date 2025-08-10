@@ -20,6 +20,14 @@ from typing import Dict, List, Any, Tuple, Optional
 from agent_ops import AgentOps
 from csv_compatibility import csv_processor
 
+# Import storage integration
+try:
+    from storage_integration import FastAPIStorageIntegration
+    STORAGE_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Storage integration not available: {e}")
+    STORAGE_AVAILABLE = False
+
 class DynamicDataProcessor:
     """Dynamic data processor that can handle any data source and format."""
     
@@ -27,7 +35,8 @@ class DynamicDataProcessor:
         self.supported_formats = {
             'edi': ['.edi', '.txt'],
             'csv': ['.csv'],
-            'html': ['.html', '.htm']
+            'html': ['.html', '.htm'],
+            'html_edi': ['.edi', '.html', '.htm']  # Files that are HTML but contain EDI content
         }
     
     def detect_file_type(self, file_path: Path) -> str:
@@ -35,18 +44,34 @@ class DynamicDataProcessor:
         if file_path.suffix.lower() in self.supported_formats['csv']:
             return 'csv'
         elif file_path.suffix.lower() in self.supported_formats['edi']:
-            # Check content to determine if it's EDI
+            # Check content to determine if it's EDI or HTML with EDI content
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     first_line = f.readline().strip()
                     if first_line.startswith('ISA') or '*' in first_line:
                         return 'edi'
+                    elif first_line.startswith('<!DOCTYPE') or first_line.startswith('<html'):
+                        # Check if it contains EDI content in pre tags
+                        content = f.read()
+                        if '<pre' in content and '*' in content:
+                            return 'html_edi'  # HTML file with EDI content
+                        else:
+                            return 'html'
                     else:
                         return 'text'
             except:
                 return 'text'
         elif file_path.suffix.lower() in self.supported_formats['html']:
-            return 'html'
+            # Check if HTML contains EDI content
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if '<pre' in content and '*' in content:
+                        return 'html_edi'  # HTML file with EDI content
+                    else:
+                        return 'html'
+            except:
+                return 'html'
         else:
             return 'unknown'
     
@@ -67,6 +92,41 @@ class DynamicDataProcessor:
                     segments.append(parts)
         except Exception as e:
             print(f"❌ Error parsing EDI file {file_path}: {e}")
+            return []
+        return segments
+    
+    def extract_edi_from_html(self, file_path: Path) -> List[List[str]]:
+        """Extract EDI content from HTML file with EDI content in pre tags."""
+        segments: List[List[str]] = []
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Find the EDI content in the <pre> tags
+            import re
+            pre_match = re.search(r'<pre[^>]*>(.*?)</pre>', content, re.DOTALL)
+            
+            if pre_match:
+                edi_content = pre_match.group(1).strip()
+                
+                # Process each line of EDI content
+                for line in edi_content.split('\n'):
+                    line = line.strip()
+                    if not line or line.startswith("ISA") or line.startswith("GS") or line.startswith("GE") or line.startswith("IEA"):
+                        # Skip envelope segments for this simple parser
+                        continue
+                    # Split on '*' and strip trailing '~' if present
+                    if line.endswith("~"):
+                        line = line[:-1]
+                    parts = line.split("*")
+                    segments.append(parts)
+                
+                print(f"      ✅ Extracted {len(segments)} EDI segments from HTML")
+            else:
+                print(f"      ⚠️  No EDI content found in HTML file")
+                
+        except Exception as e:
+            print(f"❌ Error parsing HTML EDI file {file_path}: {e}")
             return []
         return segments
     
@@ -168,6 +228,27 @@ class DynamicDataProcessor:
                                 print(f"      ✅ Processed generic CSV with {result['row_count']} rows")
                             else:
                                 file_analysis['error'] = result['error']
+                    
+                    elif file_type == 'html_edi':
+                        # Extract EDI content directly from HTML with EDI content
+                        if '850' in file_path.name.lower() or 'po' in file_path.name.lower():
+                            segments = self.extract_edi_from_html(file_path)
+                            analysis['data_types']['edi_850'] = segments
+                            file_analysis['processed'] = True
+                            file_analysis['segments'] = len(segments)
+                            print(f"      ✅ Extracted EDI 850 from HTML with {len(segments)} segments")
+                        elif '856' in file_path.name.lower() or 'asn' in file_path.name.lower():
+                            segments = self.extract_edi_from_html(file_path)
+                            analysis['data_types']['edi_856'] = segments
+                            file_analysis['processed'] = True
+                            file_analysis['segments'] = len(segments)
+                            print(f"      ✅ Extracted EDI 856 from HTML with {len(segments)} segments")
+                        else:
+                            # Generic EDI processing from HTML
+                            segments = self.extract_edi_from_html(file_path)
+                            file_analysis['processed'] = True
+                            file_analysis['segments'] = len(segments)
+                            print(f"      ✅ Extracted generic EDI from HTML with {len(segments)} segments")
                     
                     elif file_type == 'html':
                         # Extract EDI from HTML
@@ -275,6 +356,7 @@ def main():
             
             # Continue with AgentOps processing
             data_types = analysis['data_types']
+            data_dir = upload_dir  # Set data_dir for upload path
         else:
             print("Usage: python3 main.py [--upload <upload_directory>]")
             sys.exit(1)
@@ -364,6 +446,42 @@ def main():
             print(f"\n🚨 Incident Details:")
             print(f"   - Problem: {rca_json.get('problem_type', 'Unknown')}")
             print(f"   - Status: {rca_json.get('status', 'Unknown')}")
+        
+        # Store results in Supabase if storage is available
+        if STORAGE_AVAILABLE:
+            print(f"\n💾 Checking Supabase storage availability...")
+            storage_integration = FastAPIStorageIntegration()
+            
+            if storage_integration.is_available():
+                print(f"✅ Supabase storage available - storing results...")
+                artifacts_dir = base_dir / "artifacts"
+                
+                # Ensure artifacts directory exists
+                if not artifacts_dir.exists():
+                    print(f"⚠️  Artifacts directory not found: {artifacts_dir}")
+                    print("   This may indicate that AgentOps didn't generate artifacts")
+                else:
+                    print(f"📁 Found artifacts directory: {artifacts_dir}")
+                    artifact_files = list(artifacts_dir.glob("*"))
+                    print(f"   Found {len(artifact_files)} artifact files")
+                
+                storage_results = storage_integration.store_analysis_results(
+                    com_json, rca_json, spans, artifacts_dir
+                )
+                
+                if storage_results.get("success"):
+                    print(f"✅ Storage successful: {storage_results['artifacts_stored']} artifacts, "
+                          f"{storage_results['spans_stored']} spans, "
+                          f"incident: {storage_results['incident_created']}")
+                else:
+                    print(f"⚠️  Storage issues: {storage_results.get('error', 'Unknown error')}")
+            else:
+                print("⚠️  Supabase storage not available")
+                print("   Artifacts are only stored locally in the artifacts/ directory")
+                print("   To enable Supabase storage, set SUPABASE_URL and SUPABASE_KEY environment variables")
+        else:
+            print("\n⚠️  Supabase storage integration not available")
+            print("   Artifacts are only stored locally in the artifacts/ directory")
         
         print(f"\n🎉 AgentOps analysis complete!")
         
