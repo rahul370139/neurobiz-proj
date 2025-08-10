@@ -311,16 +311,11 @@ def auto_detect_data_directory() -> Optional[Path]:
     """Automatically detect which data directory to use."""
     base_dir = Path(__file__).resolve().parent
     
-    # Priority order: data_sample_org first, then sample_data
-    data_dirs = [
-        base_dir / "data_sample_org",
-        base_dir / "sample_data"
-    ]
-    
-    for data_dir in data_dirs:
-        if data_dir.exists() and data_dir.is_dir():
-            print(f"🎯 Auto-detected data directory: {data_dir}")
-            return data_dir
+    # Look for any directory with data files
+    for item in base_dir.iterdir():
+        if item.is_dir() and any(item.glob("*")):
+            print(f"🎯 Auto-detected data directory: {item}")
+            return item
     
     return None
 
@@ -366,8 +361,7 @@ def main():
         
         if not data_dir:
             print("❌ No data directory found!")
-            print("Please ensure either 'sample_data' or 'data_sample_org' directory exists.")
-            print("Or use: python3 main.py --upload <directory>")
+            print("Please upload files first or use: python3 main.py --upload <directory>")
             sys.exit(1)
         
         print(f"📁 Using data directory: {data_dir}")

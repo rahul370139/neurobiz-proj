@@ -217,7 +217,7 @@ class Span:
 class AgentOps:
     """Core class implementing the Option A agent logic."""
 
-    def __init__(self, base_dir: Path, data_dir_name: str = "sample_data", parsed_data: Dict[str, Any] = None):
+    def __init__(self, base_dir: Path, data_dir_name: str = "temp_data", parsed_data: Dict[str, Any] = None):
         self.base_dir = base_dir
         self.data_dir = base_dir / data_dir_name
         self.templates_dir = self.data_dir / "templates"

@@ -37,22 +37,16 @@ except ImportError as e:
     print(f"Warning: Storage integration not available: {e}")
     STORAGE_AVAILABLE = False
 
-def install_dependencies():
-    """Install required dependencies."""
-    print("📦 Installing dependencies...")
-    try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-        print("✅ Dependencies installed successfully!")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to install dependencies: {e}")
-        return False
-
 def check_dependencies():
     """Check if required packages are available."""
-    required_packages = ['fastapi', 'uvicorn']
-    missing_packages = []
+    required_packages = [
+        "fastapi",
+        "uvicorn",
+        "python-multipart",
+        "jinja2"
+    ]
     
+    missing_packages = []
     for package in required_packages:
         try:
             __import__(package)
@@ -61,42 +55,14 @@ def check_dependencies():
     
     return missing_packages
 
-def test_data_sample_org():
-    """Test the data_sample_org data with AgentOps."""
-    print("🧪 Testing data_sample_org Data with AgentOps")
-    
+def install_dependencies():
+    """Install missing dependencies."""
     try:
-        # Get the current directory
-        base_dir = Path(__file__).resolve().parent
-        data_dir = base_dir / "data_sample_org"
-        
-        if not data_dir.exists():
-            print(f"❌ Data directory not found: {data_dir}")
-            return False
-        
-        # Check if there are any files in the directory (more flexible)
-        available_files = list(data_dir.glob("*"))
-        if not available_files:
-            print(f"⚠️  No files found in data directory: {data_dir}")
-            return False
-        
-        print(f"📁 Found {len(available_files)} files in data directory:")
-        for file_path in available_files:
-            if file_path.is_file():
-                print(f"   - {file_path.name}")
-        
-        # Test AgentOps initialization (but don't fail if it doesn't work)
-        try:
-            agent = AgentOps(base_dir, data_dir_name="data_sample_org")
-            print("✅ AgentOps initialized successfully!")
-            return True
-        except Exception as e:
-            print(f"⚠️  AgentOps initialization failed: {e}")
-            print("   This is normal for fresh deployments without sample data")
-            return False
-            
+        import subprocess
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+        return True
     except Exception as e:
-        print(f"⚠️  Data test error: {e}")
+        print(f"Failed to install dependencies: {e}")
         return False
 
 # Initialize FastAPI app
@@ -110,9 +76,8 @@ app = FastAPI(
 UPLOAD_DIR = Path(__file__).resolve().parent / "temp_uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Data directory for processing - will use data_sample_org for testing
-DATA_DIR = Path(__file__).resolve().parent / "data_sample_org"
-DATA_DIR.mkdir(exist_ok=True)
+# Data directory for processing - will be created dynamically based on uploads
+DATA_DIR = None
 
 # Track if we have uploaded data
 HAS_UPLOADED_DATA = False
@@ -175,20 +140,6 @@ async def startup_event():
             sys.exit(1)
     else:
         print("✅ All dependencies are available!")
-    
-    # Test the data first (optional - won't block startup)
-    print("\n🧪 Testing data_sample_org data (optional)...")
-    try:
-        if test_data_sample_org():
-            print("✅ Data test passed!")
-        else:
-            print("⚠️ Data test failed - this is normal for fresh deployments")
-            print("   Users can upload their own files for analysis")
-            print("   The application will work without sample data")
-    except Exception as e:
-        print(f"⚠️ Could not run data test: {e}")
-        print("   This is normal and won't affect functionality")
-        print("   The application is ready to accept user uploads")
     
     # Initialize storage integration if available
     global storage_integration
@@ -355,6 +306,12 @@ async def upload_files(files: List[UploadFile] = File(...)):
     try:
         print(f"📁 Upload endpoint called with {len(files)} files")
         print(f"📁 UPLOAD_DIR: {UPLOAD_DIR}")
+        
+        # Create a unique data directory for this upload session
+        global DATA_DIR
+        if DATA_DIR is None:
+            DATA_DIR = Path(__file__).resolve().parent / f"upload_data_{int(datetime.datetime.now().timestamp())}"
+        DATA_DIR.mkdir(exist_ok=True)
         print(f"📁 DATA_DIR: {DATA_DIR}")
         
         processed_files = []
@@ -491,11 +448,14 @@ async def run_analysis():
             # This allows the analysis to run with any combination of files
             flexible_data = UPLOADED_PARSED_DATA.copy()
             
+            # Generate unique order ID for this analysis session
+            unique_order_id = f"ORDER_{int(datetime.datetime.now().timestamp())}"
+            
             # If we don't have edi_850, create a minimal one
             if 'edi_850' not in flexible_data:
                 print("📝 Creating minimal EDI 850 data for analysis...")
                 flexible_data['edi_850'] = [
-                    ['BEG', '00', 'SA', 'ORDER123', '', '20240101'],
+                    ['BEG', '00', 'SA', unique_order_id, '', '20240101'],
                     ['DTM', '002', '20240101'],
                     ['N1', 'ST', 'Customer Name'],
                     ['PO1', '1', '10', 'EA', '10.00', 'VP', 'ITEM001']
@@ -505,7 +465,7 @@ async def run_analysis():
             if 'edi_856' not in flexible_data:
                 print("📝 Creating minimal EDI 856 data for analysis...")
                 flexible_data['edi_856'] = [
-                    ['BSN', '00', 'SHIP123', '20240101', '1200'],
+                    ['BSN', '00', f'SHIP_{unique_order_id}', '20240101', '1200'],
                     ['DTM', '011', '20240101'],
                     ['N1', 'ST', 'Customer Name'],
                     ['S5', '1', '10', 'EA']
@@ -515,7 +475,7 @@ async def run_analysis():
             if 'erp' not in flexible_data:
                 print("📝 Creating minimal ERP data for analysis...")
                 flexible_data['erp'] = {
-                    'ORDER123': {
+                    unique_order_id: {
                         'order_date': '2024-01-01',
                         'customer_name': 'Customer Name',
                         'total_amount': '100.00'
@@ -526,7 +486,7 @@ async def run_analysis():
             if 'carrier' not in flexible_data:
                 print("📝 Creating minimal carrier data for analysis...")
                 flexible_data['carrier'] = {
-                    'ORDER123': 'Standard Shipping'
+                    unique_order_id: 'Standard Shipping'
                 }
             
             print(f"✅ Flexible data prepared with keys: {list(flexible_data.keys())}")
@@ -549,17 +509,10 @@ async def run_analysis():
             # Use the temp directory for analysis
             agent = AgentOps(base_dir, data_dir_name="temp_analysis")
         else:
-            # Fall back to data_sample_org for testing if available
-            print("📁 No uploaded files found, checking for sample data...")
-            sample_data_dir = base_dir / "data_sample_org"
-            if sample_data_dir.exists() and any(sample_data_dir.glob("*")):
-                print("📁 Using sample data for analysis...")
-                agent = AgentOps(base_dir, data_dir_name="data_sample_org")
-            else:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="No files available for analysis. Please upload EDI/CSV files first using the /upload endpoint."
-                )
+            raise HTTPException(
+                status_code=400, 
+                detail="No files available for analysis. Please upload EDI/CSV files first using the /upload endpoint."
+            )
         
         # Run analysis
         print("🔍 Running AgentOps analysis...")
@@ -666,7 +619,7 @@ async def health_check():
     try:
         # Check directory status
         upload_dir_exists = UPLOAD_DIR.exists()
-        data_dir_exists = DATA_DIR.exists()
+        data_dir_exists = DATA_DIR is not None and DATA_DIR.exists()
         
         # Check if directories are writable
         upload_writable = False
@@ -681,7 +634,7 @@ async def health_check():
             except Exception as e:
                 upload_writable = False
         
-        if data_dir_exists:
+        if data_dir_exists and DATA_DIR is not None:
             try:
                 test_file = DATA_DIR / "test.txt"
                 test_file.write_text("test")
@@ -744,7 +697,7 @@ async def list_uploaded_files():
                 })
     
     # List files in data directory
-    if DATA_DIR.exists():
+    if DATA_DIR is not None and DATA_DIR.exists():
         for file_path in DATA_DIR.glob("*"):
             if file_path.is_file():
                 files.append({

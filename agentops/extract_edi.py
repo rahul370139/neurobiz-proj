@@ -88,7 +88,7 @@ def validate_data_directory(data_dir: Path) -> bool:
     print(f"\n✅ All required files found!")
     return True
 
-def test_agentops_integration(base_dir: Path, data_dir_name: str = "data_sample_org") -> bool:
+def test_agentops_integration(base_dir: Path, data_dir_name: str = "temp_data") -> bool:
     """Test AgentOps integration with the specified data directory."""
     print(f"\n🔧 Testing AgentOps integration...")
     
@@ -100,33 +100,15 @@ def test_agentops_integration(base_dir: Path, data_dir_name: str = "data_sample_
         agent = AgentOps(base_dir, data_dir_name=data_dir_name)
         print("✅ AgentOps initialized successfully!")
         
-        # Test data parsing
-        print("\n🔍 Testing data parsing...")
-        data_dir = base_dir / data_dir_name
+        # Test basic functionality
+        print("\n🔍 Testing basic functionality...")
+        com_json, rca_json, spans = agent.run()
         
-        # Test EDI parsing
-        edi_850_path = data_dir / "po_850_raw.edi"
-        edi_856_path = data_dir / "asn_856_raw.edi"
+        print("✅ AgentOps analysis completed successfully!")
+        print(f"📊 Order ID: {com_json.get('order_id', {}).get('value', 'N/A')}")
+        print(f"📊 Incidents: {len([s for s in spans if 'incident' in s.tool.lower()])}")
+        print(f"📊 Total spans: {len(spans)}")
         
-        from agent_ops import read_edi_file
-        edi_850_segments = read_edi_file(edi_850_path)
-        edi_856_segments = read_edi_file(edi_856_path)
-        
-        print(f"   ✅ EDI 850 parsed: {len(edi_850_segments)} segments")
-        print(f"   ✅ EDI 856 parsed: {len(edi_856_segments)} segments")
-        
-        # Test CSV parsing with compatibility layer
-        erp_path = data_dir / "erp_iway.csv"
-        carrier_path = data_dir / "carrier_iway.csv"
-        
-        from csv_compatibility import parse_erp_csv_compatible, parse_carrier_csv_compatible
-        erp_data = parse_erp_csv_compatible(erp_path)
-        carrier_data = parse_carrier_csv_compatible(carrier_path)
-        
-        print(f"   ✅ ERP CSV parsed: {len(erp_data)} records")
-        print(f"   ✅ Carrier CSV parsed: {len(carrier_data)} records")
-        
-        print("\n✅ All data parsing tests passed!")
         return True
         
     except ImportError as e:
@@ -140,36 +122,35 @@ def test_agentops_integration(base_dir: Path, data_dir_name: str = "data_sample_
         return False
 
 def extract_all_edi_files():
-    """Extract EDI content from all HTML files in data_sample_org."""
+    """Extract EDI content from all HTML files in the current directory."""
     print("🔍 EDI Content Extractor")
     print("=" * 40)
     
-    # Define input and output file mappings
-    file_mappings = [
-        ("data_sample_org/po_850.edi", "data_sample_org/po_850_raw.edi"),
-        ("data_sample_org/asn_856.edi", "data_sample_org/asn_856_raw.edi")
-    ]
+    # Look for HTML files in the current directory
+    html_files = [f for f in os.listdir('.') if f.endswith('.html')]
+    
+    if not html_files:
+        print("❌ No HTML files found in current directory")
+        return False
     
     success_count = 0
     
-    for html_file, edi_file in file_mappings:
-        if os.path.exists(html_file):
-            if extract_edi_from_html(html_file, edi_file):
-                success_count += 1
-        else:
-            print(f"❌ File not found: {html_file}")
+    for html_file in html_files:
+        edi_file = html_file.replace('.html', '_raw.edi')
+        if extract_edi_from_html(html_file, edi_file):
+            success_count += 1
     
     print("\n" + "=" * 40)
-    print(f"🎉 Extraction complete! {success_count}/{len(file_mappings)} files processed successfully.")
+    print(f"🎉 Extraction complete! {success_count}/{len(html_files)} files processed successfully.")
     
     if success_count > 0:
         print("\n📁 Files created:")
-        for _, edi_file in file_mappings:
+        for html_file in html_files:
+            edi_file = html_file.replace('.html', '_raw.edi')
             if os.path.exists(edi_file):
                 print(f"   ✅ {edi_file}")
         
-        print("\n🚀 You can now run AgentOps with the extracted EDI files!")
-        print("   Run: python3 main.py")
+        print("\n🚀 EDI files extracted successfully!")
     
     return success_count > 0
 
@@ -180,10 +161,7 @@ def run_comprehensive_test():
     
     # Get the current directory
     base_dir = Path(__file__).resolve().parent
-    data_dir = base_dir / "data_sample_org"
-    
     print(f"📁 Base directory: {base_dir}")
-    print(f"📁 Data directory: {data_dir}")
     
     # Step 1: Extract EDI files if needed
     print("\n📋 Step 1: EDI File Extraction")
@@ -191,17 +169,10 @@ def run_comprehensive_test():
     if not extract_all_edi_files():
         print("⚠️  EDI extraction had issues, but continuing...")
     
-    # Step 2: Validate data directory
-    print("\n📋 Step 2: Data Directory Validation")
+    # Step 2: Test AgentOps integration with minimal data
+    print("\n📋 Step 2: AgentOps Integration Test")
     print("-" * 40)
-    if not validate_data_directory(data_dir):
-        print("❌ Data validation failed!")
-        return False
-    
-    # Step 3: Test AgentOps integration
-    print("\n📋 Step 3: AgentOps Integration Test")
-    print("-" * 40)
-    if not test_agentops_integration(base_dir):
+    if not test_agentops_integration(base_dir, "temp_data"):
         print("❌ AgentOps integration test failed!")
         return False
     
@@ -234,7 +205,7 @@ def main():
     if args.all or args.validate:
         print("\n📋 Running data validation...")
         base_dir = Path(__file__).resolve().parent
-        data_dir = base_dir / "data_sample_org"
+        data_dir = base_dir / "temp_data"
         validate_data_directory(data_dir)
     
     if args.all or args.test:
