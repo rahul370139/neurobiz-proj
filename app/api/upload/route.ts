@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
+import { apiUrls } from '@/lib/config'
 
 // Server-side proxy to avoid browser CORS while calling the Railway API
 export async function POST(req: Request) {
   try {
     const form = await req.formData()
-    const upstream = 'https://neurobiz-proj-production.up.railway.app/upload'
+    const upstream = apiUrls.upload
     const res = await fetch(upstream, { method: 'POST', body: form })
 
     let data: any = null
